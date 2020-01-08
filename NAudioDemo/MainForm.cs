@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows.Forms;
 using NAudio.Wave;
@@ -10,6 +11,12 @@ namespace NAudioDemo
     public sealed partial class MainForm : Form
     {
         private INAudioDemoPlugin currentPlugin;
+
+        [DllImport("INPOUT32", EntryPoint = "Out32")]
+        public static extern void Output(int address, int value);
+
+        private int _parallelPortAddress = 888;
+        bool _useParallelPort = true;
 
         public MainForm()
         {
@@ -22,18 +29,24 @@ namespace NAudioDemo
                 string audio;
                 if(i %2 == 0)
                 {
-                    audio = @"D:\Github\BrainFunctionMonitor\Debug\ERP\MMN\sin800.wav";
+                    audio = @"sin800.wav";
                 }
                 else
                 {
-                    audio = @"D:\Github\BrainFunctionMonitor\Debug\ERP\MMN\s3.wav";
+                    audio = @"sin1200.wav";
                 }
                 using (var audioFile = new AudioFileReader(audio))
                 using (var outputDevice = new WasapiOut())
                 {
+                    ParallelPortSend(_parallelPortAddress, 0);
                     outputDevice.Init(audioFile);
                     outputDevice.Play();
-                    cOMHelper.SendToCOM(i%2+1);
+                    if (!_useParallelPort)
+                    {
+                        cOMHelper.SendToCOM(i % 2 + 1);
+                    }
+                    else Output(_parallelPortAddress, i % 2 + 1);
+
                     //Console.WriteLine("After Play:" + sw.ElapsedMilliseconds);
                     int interval = 0;
                     
@@ -106,6 +119,10 @@ namespace NAudioDemo
         private void OnMainFormClosing(object sender, FormClosingEventArgs e)
         {
             DisposeCurrentDemo();
+        }
+        private void ParallelPortSend(int address, int eventNumber)
+        {
+            Output(address, eventNumber);
         }
     }
 }
