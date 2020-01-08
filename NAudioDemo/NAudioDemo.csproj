@@ -120,6 +120,7 @@
     <Compile Include="AudioPlaybackDemo\WaveOutSettingsPanel.Designer.cs">
       <DependentUpon>WaveOutSettingsPanel.cs</DependentUpon>
     </Compile>
+    <Compile Include="COMHelper.cs" />
     <Compile Include="FadeInOutDemo\FadeInOutPlugin.cs" />
     <Compile Include="Images.Designer.cs">
       <DependentUpon>Images.resx</DependentUpon>

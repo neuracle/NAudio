@@ -84,6 +84,7 @@ namespace NAudio.Wave
             outputFormat = audioClient.MixFormat; // allow the user to query the default format for shared mode streams
         }
 
+        private bool started;
         static MMDevice GetDefaultAudioEndpoint()
         {
             if (Environment.OSVersion.Version.Major < 6)
@@ -117,6 +118,8 @@ namespace NAudio.Wave
                 var waitHandles = new WaitHandle[] { frameEventWaitHandle };
 
                 audioClient.Start();
+
+                started = true;
 
                 while (playbackState != PlaybackState.Stopped)
                 {
@@ -296,9 +299,14 @@ namespace NAudio.Wave
             {
                 if (playbackState == PlaybackState.Stopped)
                 {
+                    started = false;
                     playThread = new Thread(PlayThread);
                     playbackState = PlaybackState.Playing;
-                    playThread.Start();                    
+                    playThread.Start();                 
+                    while(!started)
+                    {
+
+                    }
                 }
                 else
                 {
