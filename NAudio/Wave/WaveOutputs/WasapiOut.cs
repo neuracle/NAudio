@@ -94,12 +94,19 @@ namespace NAudio.Wave
             var enumerator = new MMDeviceEnumerator();
             return enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Console);
         }
+        [DllImport("Avrt.dll", EntryPoint = "AvSetMmThreadCharacteristicsA", CallingConvention = CallingConvention.Cdecl,
+            SetLastError = false)]
+        public static extern int AvSetMmThreadCharacteristics(string taskName, out int taskIndex);
+        [DllImport("Avrt.dll", EntryPoint = "AvRevertMmThreadCharacteristics", CallingConvention = CallingConvention.Cdecl,
+            SetLastError = false)]
+        public static extern int AvRevertMmThreadCharacteristics(int handle);
 
         private void PlayThread()
         {
             ResamplerDmoStream resamplerDmoStream = null;
             IWaveProvider playbackProvider = sourceProvider;
             Exception exception = null;
+            int hTask = 0;
             try
             {
                 if (dmoResamplerNeeded)
@@ -107,7 +114,7 @@ namespace NAudio.Wave
                     resamplerDmoStream = new ResamplerDmoStream(sourceProvider, outputFormat);
                     playbackProvider = resamplerDmoStream;
                 }
-
+                Thread.CurrentThread.Priority = ThreadPriority.Highest;
                 // fill a whole buffer
                 bufferFrameCount = audioClient.BufferSize;
                 bytesPerFrame = outputFormat.Channels * outputFormat.BitsPerSample / 8;
@@ -120,6 +127,8 @@ namespace NAudio.Wave
                 audioClient.Start();
 
                 started = true;
+                int taskIndex;
+                hTask = AvSetMmThreadCharacteristics("Pro Audio", out taskIndex);
 
                 while (playbackState != PlaybackState.Stopped)
                 {
@@ -155,7 +164,7 @@ namespace NAudio.Wave
                         }
                     }
                 }
-                Thread.Sleep(latencyMilliseconds / 2);
+                //Thread.Sleep(latencyMilliseconds / 2);
                 audioClient.Stop();
                 if (playbackState == PlaybackState.Stopped)
                 {
@@ -173,7 +182,15 @@ namespace NAudio.Wave
                     resamplerDmoStream.Dispose();
                 }
                 RaisePlaybackStopped(exception);
+                if (hTask != 0)
+                {
+                    AvRevertMmThreadCharacteristics(hTask);
+                }
             }
+            audioClient.Dispose();
+            audioClient = null;
+            renderClient = null;
+
         }
 
         private void RaisePlaybackStopped(Exception e)
@@ -315,16 +332,20 @@ namespace NAudio.Wave
             }
         }
 
+        object _lockObj = new object();
         /// <summary>
         /// Stop playback and flush buffers
         /// </summary>
         public void Stop()
         {
-            if (playbackState != PlaybackState.Stopped)
+            lock(_lockObj)
             {
-                playbackState = PlaybackState.Stopped;
-                playThread.Join();
-                playThread = null;
+                if (playbackState != PlaybackState.Stopped)
+                {
+                    playbackState = PlaybackState.Stopped;
+                    playThread.Join();
+                    playThread = null;
+                }
             }
         }
 
@@ -510,9 +531,6 @@ namespace NAudio.Wave
             {
                 Stop();
 
-                audioClient.Dispose();
-                audioClient = null;
-                renderClient = null;
             }
         }
 
