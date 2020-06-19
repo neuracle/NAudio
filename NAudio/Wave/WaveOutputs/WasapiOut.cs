@@ -24,6 +24,7 @@ namespace NAudio.Wave
         private EventWaitHandle frameEventWaitHandle;
         private byte[] readBuffer;
         private volatile PlaybackState playbackState;
+        private ManualResetEvent StopEvent = new ManualResetEvent(false);
         private Thread playThread;
         private WaveFormat outputFormat;
         private bool dmoResamplerNeeded;
@@ -107,6 +108,7 @@ namespace NAudio.Wave
             IWaveProvider playbackProvider = sourceProvider;
             Exception exception = null;
             int hTask = 0;
+            StopEvent.Reset();
             try
             {
                 if (dmoResamplerNeeded)
@@ -120,9 +122,11 @@ namespace NAudio.Wave
                 bytesPerFrame = outputFormat.Channels * outputFormat.BitsPerSample / 8;
                 readBuffer = new byte[bufferFrameCount * bytesPerFrame];
                 FillBuffer(playbackProvider, bufferFrameCount);
+                System.Diagnostics.Stopwatch sw = new System.Diagnostics.Stopwatch();
+                sw.Start();
 
                 // Create WaitHandle for sync
-                var waitHandles = new WaitHandle[] { frameEventWaitHandle };
+                var waitHandles = new WaitHandle[] { frameEventWaitHandle , StopEvent };
 
                 audioClient.Start();
 
@@ -137,10 +141,17 @@ namespace NAudio.Wave
                     if (isUsingEventSync)
                     {
                         indexHandle = WaitHandle.WaitAny(waitHandles, 3 * latencyMilliseconds, false);
+                        if(indexHandle == 1)
+                        {
+                            break;
+                        }
                     }
                     else
                     {
-                        Thread.Sleep(latencyMilliseconds / 2);
+                        if(StopEvent.WaitOne(latencyMilliseconds/2))
+                        {
+                            break;
+                        }
                     }
 
                     // If still playing and notification is ok
@@ -161,11 +172,16 @@ namespace NAudio.Wave
                         if (numFramesAvailable > 10) // see https://naudio.codeplex.com/workitem/16363
                         {
                             FillBuffer(playbackProvider, numFramesAvailable);
+                            if(StopEvent.WaitOne(0))
+                            {
+                                Thread.Sleep(bufferFrameCount * 1000 / outputFormat.SampleRate);
+                            }
                         }
                     }
                 }
                 //Thread.Sleep(latencyMilliseconds / 2);
                 audioClient.Stop();
+
                 if (playbackState == PlaybackState.Stopped)
                 {
                     audioClient.Reset();
@@ -217,6 +233,7 @@ namespace NAudio.Wave
             if (read == 0)
             {
                 playbackState = PlaybackState.Stopped;
+                StopEvent.Set();
             }
             Marshal.Copy(readBuffer, 0, buffer, read);
             if (this.isUsingEventSync && this.shareMode == AudioClientShareMode.Exclusive)
@@ -342,6 +359,7 @@ namespace NAudio.Wave
             {
                 if (playbackState != PlaybackState.Stopped)
                 {
+                    StopEvent.Set();
                     playbackState = PlaybackState.Stopped;
                     playThread.Join();
                     playThread = null;
