@@ -42,7 +42,7 @@ namespace NAudioDemo
             if (isCOMOpen == false)
                 try
                 {
-                    comPort.PortName = "COM4";
+                    comPort.PortName = "COM5";
                     comPort.BaudRate = 115200;
                     comPort.Parity = Parity.None;
                     comPort.StopBits = StopBits.One;

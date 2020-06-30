@@ -85,7 +85,7 @@ namespace NAudio.Wave
             outputFormat = audioClient.MixFormat; // allow the user to query the default format for shared mode streams
         }
 
-        private bool started;
+        private ManualResetEvent startedEvent = new ManualResetEvent(false);
         static MMDevice GetDefaultAudioEndpoint()
         {
             if (Environment.OSVersion.Version.Major < 6)
@@ -121,18 +121,39 @@ namespace NAudio.Wave
                 bufferFrameCount = audioClient.BufferSize;
                 bytesPerFrame = outputFormat.Channels * outputFormat.BitsPerSample / 8;
                 readBuffer = new byte[bufferFrameCount * bytesPerFrame];
-                FillBuffer(playbackProvider, bufferFrameCount);
+
+                FillBufferWithZero(bufferFrameCount);
                 System.Diagnostics.Stopwatch sw = new System.Diagnostics.Stopwatch();
-                sw.Start();
 
                 // Create WaitHandle for sync
                 var waitHandles = new WaitHandle[] { frameEventWaitHandle , StopEvent };
-
-                audioClient.Start();
-
-                started = true;
                 int taskIndex;
                 hTask = AvSetMmThreadCharacteristics("Pro Audio", out taskIndex);
+
+                audioClient.Reset();
+                Console.WriteLine($"SteamLatency:{audioClient.StreamLatency}");
+                FillBuffer(playbackProvider, bufferFrameCount);
+                Console.WriteLine($"position: { (GetPosition() % bufferFrameCount)*1000/44100}");
+                var lastPos = (GetPosition() % bufferFrameCount) * 1000 / 44100;
+                audioClient.Start();
+                sw.Start();
+                while (true)
+                {
+                    var pos = (GetPosition() % bufferFrameCount) * 1000 / 44100;
+                    if(lastPos ==pos)
+                    {
+                        break;
+                    }
+                    if(pos>=5)
+                    {
+                        break;
+                    }
+                    Thread.Sleep(1);
+                }
+                startedEvent.Set();
+                //Console.WriteLine($"audioClient.Start: {Environment.TickCount}");
+                //Console.WriteLine($"position: { (GetPosition() % bufferFrameCount) * 1000 / 44100}");
+                bool firstOutput = false;
 
                 while (playbackState != PlaybackState.Stopped)
                 {
@@ -154,6 +175,7 @@ namespace NAudio.Wave
                         }
                     }
 
+
                     // If still playing and notification is ok
                     if (playbackState == PlaybackState.Playing && indexHandle != WaitHandle.WaitTimeout)
                     {
@@ -172,7 +194,13 @@ namespace NAudio.Wave
                         if (numFramesAvailable > 10) // see https://naudio.codeplex.com/workitem/16363
                         {
                             FillBuffer(playbackProvider, numFramesAvailable);
-                            if(StopEvent.WaitOne(0))
+                            var t = sw.ElapsedMilliseconds;
+                            if(!firstOutput)
+                            {
+                                Console.WriteLine($"Cost :{t} padding:{numFramesPadding} numFramesAvailable:{numFramesAvailable} position:{GetPosition()*1000/44100}" );
+                                firstOutput = true;
+                            }
+                            if (StopEvent.WaitOne(0))
                             {
                                 Thread.Sleep(bufferFrameCount * 1000 / outputFormat.SampleRate);
                             }
@@ -206,6 +234,8 @@ namespace NAudio.Wave
             audioClient.Dispose();
             audioClient = null;
             renderClient = null;
+            startedEvent.Close();
+            StopEvent.Close();
 
         }
 
@@ -243,6 +273,27 @@ namespace NAudio.Wave
             else
             {
                 int actualFrameCount = read / bytesPerFrame;
+                /*if (actualFrameCount != frameCount)
+                {
+                    Debug.WriteLine(String.Format("WASAPI wanted {0} frames, supplied {1}", frameCount, actualFrameCount ));
+                }*/
+                renderClient.ReleaseBuffer(actualFrameCount, AudioClientBufferFlags.None);
+            }
+        }
+
+        private void FillBufferWithZero(int frameCount)
+        {
+            var buffer = renderClient.GetBuffer(frameCount);
+            var readLength = frameCount * bytesPerFrame;
+            var zeroDatas = new byte[readLength];
+            Marshal.Copy(zeroDatas, 0, buffer, readLength);
+            if (this.isUsingEventSync && this.shareMode == AudioClientShareMode.Exclusive)
+            {
+                renderClient.ReleaseBuffer(frameCount, AudioClientBufferFlags.None);
+            }
+            else
+            {
+                int actualFrameCount = frameCount / bytesPerFrame;
                 /*if (actualFrameCount != frameCount)
                 {
                     Debug.WriteLine(String.Format("WASAPI wanted {0} frames, supplied {1}", frameCount, actualFrameCount ));
@@ -333,14 +384,10 @@ namespace NAudio.Wave
             {
                 if (playbackState == PlaybackState.Stopped)
                 {
-                    started = false;
                     playThread = new Thread(PlayThread);
                     playbackState = PlaybackState.Playing;
-                    playThread.Start();                 
-                    while(!started)
-                    {
-
-                    }
+                    playThread.Start();
+                    startedEvent.WaitOne();
                 }
                 else
                 {
@@ -361,6 +408,11 @@ namespace NAudio.Wave
                 {
                     StopEvent.Set();
                     playbackState = PlaybackState.Stopped;
+                    playThread.Join();
+                    playThread = null;
+                }
+                if(null!= playThread)
+                {
                     playThread.Join();
                     playThread = null;
                 }
