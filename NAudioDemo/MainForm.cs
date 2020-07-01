@@ -22,61 +22,76 @@ namespace NAudioDemo
         {
             COMHelper.SerialPortInit();
             COMHelper cOMHelper = new COMHelper();
-
             for (int i = 0; i < 200; i++)
             {
 
-                string audio;
-                if(i %2 == 0)
+                using (var outputDevice = new WasapiOut(NAudio.CoreAudioApi.AudioClientShareMode.Exclusive, true, 100))
                 {
-                    audio = @"sin800.wav";
-                }
-                else
-                {
-                    audio = @"sin1200.wav";
-                }
-                using (var audioFile = new AudioFileReader(audio))
-                using (var outputDevice = new WasapiOut())
-                {
-                    ParallelPortSend(_parallelPortAddress, 0);
-                    outputDevice.Init(audioFile);
-                    outputDevice.Play();
-                    if (!_useParallelPort)
+                    string audio;
+                    if (i % 2 == 0)
                     {
-                        cOMHelper.SendToCOM(i % 2 + 1);
+                        audio = @"sin800.wav";
                     }
-                    else Output(_parallelPortAddress, i % 2 + 1);
+                    else
+                    {
+                        audio = @"sin1200.wav";
+                    }
+                    int tick = Environment.TickCount;
+                    using (var audioFile = new AudioFileReader(audio))
+                    {
+                        int tick2 = Environment.TickCount;
+                        if (tick2 - tick > 100)
+                        {
+                            Console.WriteLine($" Init Cost(${tick2 - tick})");
+                        }
+                        ParallelPortSend(_parallelPortAddress, 0);
+                        outputDevice.Init(audioFile);
+                        outputDevice.Play();
+                        if (!_useParallelPort)
+                        {
+                            cOMHelper.SendToCOM(i % 2 + 1);
+                        }
+                        else Output(_parallelPortAddress, i % 2 + 1);
 
-                    //Console.WriteLine("After Play:" + sw.ElapsedMilliseconds);
-                    int interval = 0;
-                    
-                    switch(i%3)
-                    {
-                        case 0:
-                            interval = 150;
-                            break;
-                        case 1:
-                            interval = 125;
-                            break;
-                        case 2:
-                            interval = 137;
-                            break;
+                        //Console.WriteLine("After Play:" + sw.ElapsedMilliseconds);
+                        int interval = 0;
+
+                        switch (i % 3)
+                        {
+                            case 0:
+                                interval = 150;
+                                break;
+                            case 1:
+                                interval = 125;
+                                break;
+                            case 2:
+                                interval = 137;
+                                break;
+                        }
+                        //interval = 100;
+                        //for (int j = 0; j < interval; j++)
+                        //{
+                        //    Thread.Sleep(1);
+                        //}
+                        //outputDevice.Stop();
+                        for (int j = 0; j < 900; j++)
+                        {
+                            Thread.Sleep(1);
+                        }
+                        //while (outputDevice.PlaybackState == PlaybackState.Playing)
+                        //{
+                        //    Thread.Sleep(1);
+                        //}
                     }
-                    for (int j = 0; j < interval; j++)
+                    for (int j = 0; j < 100; j++)
                     {
                         Thread.Sleep(1);
                     }
-                    //while (outputDevice.PlaybackState == PlaybackState.Playing)
-                    //{
-                    //    Thread.Sleep(1);
-                    //}
-                }
-                for(int j = 0;j<100 ;j++ )
-                {
-                    Thread.Sleep(1);
                 }
             }
 
+            
+            Environment.Exit(0);
             COMHelper.SerialPortClose();
             //// use reflection to find all the demos
             //var demos = ReflectionHelper.CreateAllInstancesOf<INAudioDemoPlugin>().OrderBy(d => d.Name);
