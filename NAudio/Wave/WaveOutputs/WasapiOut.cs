@@ -3,6 +3,7 @@ using NAudio.CoreAudioApi;
 using NAudio.CoreAudioApi.Interfaces;
 using System.Threading;
 using System.Runtime.InteropServices;
+using System.Diagnostics;
 
 // ReSharper disable once CheckNamespace
 namespace NAudio.Wave
@@ -92,7 +93,7 @@ namespace NAudio.Wave
                 throw new NotSupportedException("WASAPI supported only on Windows Vista and above");
             }
             var enumerator = new MMDeviceEnumerator();
-            return enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Console);
+            return enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
         }
 
         private void PlayThread()
@@ -100,6 +101,10 @@ namespace NAudio.Wave
             ResamplerDmoStream resamplerDmoStream = null;
             IWaveProvider playbackProvider = sourceProvider;
             Exception exception = null;
+            Stopwatch sw = new Stopwatch();
+            sw.Start();
+            Thread.CurrentThread.Priority = ThreadPriority.Highest;
+            var lastOutput = sw.ElapsedMilliseconds;
             try
             {
                 if (dmoResamplerNeeded)
@@ -134,6 +139,7 @@ namespace NAudio.Wave
                         Thread.Sleep(latencyMilliseconds / 2);
                     }
 
+                    var now = sw.ElapsedMilliseconds;
                     // If still playing and notification is ok
                     if (playbackState == PlaybackState.Playing && indexHandle != WaitHandle.WaitTimeout)
                     {
@@ -151,8 +157,23 @@ namespace NAudio.Wave
                         int numFramesAvailable = bufferFrameCount - numFramesPadding;
                         if (numFramesAvailable > 10) // see https://naudio.codeplex.com/workitem/16363
                         {
+                            Console.WriteLine("time:"+now +", count:"+numFramesAvailable);
                             FillBuffer(playbackProvider, numFramesAvailable);
+                            Console.WriteLine("fill buffer time:" + now + ", count:" + numFramesAvailable);
+                            lastOutput = now;
                         }
+                        else
+                        {
+                            if (now - lastOutput > 15)
+                            {
+                                Console.WriteLine("not finished:"+ (now - lastOutput) + ", CurrentPadding:"+ audioClient.CurrentPadding);
+                            }
+
+                        }
+                    }
+                    if (now - lastOutput > 15)
+                    {
+                        Console.WriteLine();
                     }
                 }
                 Thread.Sleep(latencyMilliseconds / 2);
@@ -305,7 +326,7 @@ namespace NAudio.Wave
                     playThread.Start();                 
                     while(!started)
                     {
-
+                        Thread.Sleep(1);
                     }
                 }
                 else
