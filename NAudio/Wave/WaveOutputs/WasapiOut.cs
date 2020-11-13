@@ -3,7 +3,6 @@ using NAudio.CoreAudioApi;
 using NAudio.CoreAudioApi.Interfaces;
 using System.Threading;
 using System.Runtime.InteropServices;
-using System.Diagnostics;
 
 // ReSharper disable once CheckNamespace
 namespace NAudio.Wave
@@ -93,8 +92,14 @@ namespace NAudio.Wave
                 throw new NotSupportedException("WASAPI supported only on Windows Vista and above");
             }
             var enumerator = new MMDeviceEnumerator();
-            return enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
+            return enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Console);
         }
+        [DllImport("Avrt.dll", EntryPoint = "AvSetMmThreadCharacteristicsA", CallingConvention = CallingConvention.Cdecl,
+            SetLastError = false)]
+        public static extern int AvSetMmThreadCharacteristics(string taskName, out int taskIndex);
+        [DllImport("Avrt.dll", EntryPoint = "AvRevertMmThreadCharacteristics", CallingConvention = CallingConvention.Cdecl,
+            SetLastError = false)]
+        public static extern int AvRevertMmThreadCharacteristics(int handle);
 
         private void PlayThread()
         {
@@ -109,7 +114,7 @@ namespace NAudio.Wave
                     resamplerDmoStream = new ResamplerDmoStream(sourceProvider, outputFormat);
                     playbackProvider = resamplerDmoStream;
                 }
-
+                Thread.CurrentThread.Priority = ThreadPriority.Highest;
                 // fill a whole buffer
                 bufferFrameCount = audioClient.BufferSize;
                 bytesPerFrame = outputFormat.Channels * outputFormat.BitsPerSample / 8;
@@ -137,7 +142,6 @@ namespace NAudio.Wave
                         Thread.Sleep(latencyMilliseconds / 2);
                     }
 
-                    var now = sw.ElapsedMilliseconds;
                     // If still playing and notification is ok
                     if (playbackState == PlaybackState.Playing && indexHandle != WaitHandle.WaitTimeout)
                     {
@@ -155,16 +159,11 @@ namespace NAudio.Wave
                         int numFramesAvailable = bufferFrameCount - numFramesPadding;
                         if (numFramesAvailable > 10) // see https://naudio.codeplex.com/workitem/16363
                         {
-                            Console.WriteLine("time:"+now +", count:"+numFramesAvailable);
                             FillBuffer(playbackProvider, numFramesAvailable);
                         }
                     }
-                    if (now - lastOutput > 15)
-                    {
-                        Console.WriteLine();
-                    }
                 }
-                Thread.Sleep(latencyMilliseconds / 2);
+                //Thread.Sleep(latencyMilliseconds / 2);
                 audioClient.Stop();
                 if (playbackState == PlaybackState.Stopped)
                 {
@@ -182,7 +181,15 @@ namespace NAudio.Wave
                     resamplerDmoStream.Dispose();
                 }
                 RaisePlaybackStopped(exception);
+                if (hTask != 0)
+                {
+                    AvRevertMmThreadCharacteristics(hTask);
+                }
             }
+            audioClient.Dispose();
+            audioClient = null;
+            renderClient = null;
+
         }
 
         private void RaisePlaybackStopped(Exception e)
@@ -321,6 +328,7 @@ namespace NAudio.Wave
             }
         }
 
+        object _lockObj = new object();
         /// <summary>
         /// Stop playback and flush buffers
         /// </summary>
@@ -519,9 +527,6 @@ namespace NAudio.Wave
             {
                 Stop();
 
-                audioClient.Dispose();
-                audioClient = null;
-                renderClient = null;
             }
         }
 
