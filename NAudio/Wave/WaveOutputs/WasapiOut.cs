@@ -24,12 +24,11 @@ namespace NAudio.Wave
         private EventWaitHandle frameEventWaitHandle;
         private byte[] readBuffer;
         private volatile PlaybackState playbackState;
-        private ManualResetEvent StopEvent = new ManualResetEvent(false);
         private Thread playThread;
         private WaveFormat outputFormat;
         private bool dmoResamplerNeeded;
         private readonly SynchronizationContext syncContext;
-        
+
         /// <summary>
         /// Playback Stopped
         /// </summary>
@@ -85,7 +84,7 @@ namespace NAudio.Wave
             outputFormat = audioClient.MixFormat; // allow the user to query the default format for shared mode streams
         }
 
-        private bool started;
+        private ManualResetEvent _startedEvent = new ManualResetEvent(false);
         static MMDevice GetDefaultAudioEndpoint()
         {
             if (Environment.OSVersion.Version.Major < 6)
@@ -108,7 +107,6 @@ namespace NAudio.Wave
             IWaveProvider playbackProvider = sourceProvider;
             Exception exception = null;
             int hTask = 0;
-            StopEvent.Reset();
             try
             {
                 if (dmoResamplerNeeded)
@@ -122,15 +120,12 @@ namespace NAudio.Wave
                 bytesPerFrame = outputFormat.Channels * outputFormat.BitsPerSample / 8;
                 readBuffer = new byte[bufferFrameCount * bytesPerFrame];
                 FillBuffer(playbackProvider, bufferFrameCount);
-                System.Diagnostics.Stopwatch sw = new System.Diagnostics.Stopwatch();
-                sw.Start();
 
                 // Create WaitHandle for sync
-                var waitHandles = new WaitHandle[] { frameEventWaitHandle , StopEvent };
+                var waitHandles = new WaitHandle[] { frameEventWaitHandle };
 
                 audioClient.Start();
-
-                started = true;
+                _startedEvent.Set();
                 int taskIndex;
                 hTask = AvSetMmThreadCharacteristics("Pro Audio", out taskIndex);
 
@@ -141,17 +136,10 @@ namespace NAudio.Wave
                     if (isUsingEventSync)
                     {
                         indexHandle = WaitHandle.WaitAny(waitHandles, 3 * latencyMilliseconds, false);
-                        if(indexHandle == 1)
-                        {
-                            break;
-                        }
                     }
                     else
                     {
-                        if(StopEvent.WaitOne(latencyMilliseconds/2))
-                        {
-                            break;
-                        }
+                        Thread.Sleep(latencyMilliseconds / 2);
                     }
 
                     // If still playing and notification is ok
@@ -172,16 +160,11 @@ namespace NAudio.Wave
                         if (numFramesAvailable > 10) // see https://naudio.codeplex.com/workitem/16363
                         {
                             FillBuffer(playbackProvider, numFramesAvailable);
-                            if(StopEvent.WaitOne(0))
-                            {
-                                Thread.Sleep(bufferFrameCount * 1000 / outputFormat.SampleRate);
-                            }
                         }
                     }
                 }
                 //Thread.Sleep(latencyMilliseconds / 2);
                 audioClient.Stop();
-
                 if (playbackState == PlaybackState.Stopped)
                 {
                     audioClient.Reset();
@@ -233,7 +216,6 @@ namespace NAudio.Wave
             if (read == 0)
             {
                 playbackState = PlaybackState.Stopped;
-                StopEvent.Set();
             }
             Marshal.Copy(readBuffer, 0, buffer, read);
             if (this.isUsingEventSync && this.shareMode == AudioClientShareMode.Exclusive)
@@ -322,7 +304,7 @@ namespace NAudio.Wave
             get { return outputFormat; }
         }
 
-#region IWavePlayer Members
+        #region IWavePlayer Members
 
         /// <summary>
         /// Begin Playback
@@ -333,19 +315,16 @@ namespace NAudio.Wave
             {
                 if (playbackState == PlaybackState.Stopped)
                 {
-                    started = false;
+                    _startedEvent.Reset();
                     playThread = new Thread(PlayThread);
                     playbackState = PlaybackState.Playing;
-                    playThread.Start();                 
-                    while(!started)
-                    {
-
-                    }
+                    playThread.Start();
+                    _startedEvent.WaitOne();
                 }
                 else
                 {
                     playbackState = PlaybackState.Playing;
-                }                
+                }
             }
         }
 
@@ -355,11 +334,10 @@ namespace NAudio.Wave
         /// </summary>
         public void Stop()
         {
-            lock(_lockObj)
+            lock (_lockObj)
             {
                 if (playbackState != PlaybackState.Stopped)
                 {
-                    StopEvent.Set();
                     playbackState = PlaybackState.Stopped;
                     playThread.Join();
                     playThread = null;
@@ -376,7 +354,7 @@ namespace NAudio.Wave
             {
                 playbackState = PlaybackState.Paused;
             }
-            
+
         }
 
         /// <summary>
@@ -505,7 +483,7 @@ namespace NAudio.Wave
         {
             get
             {
-                return mmDevice.AudioEndpointVolume.MasterVolumeLevelScalar;                                
+                return mmDevice.AudioEndpointVolume.MasterVolumeLevelScalar;
             }
             set
             {
@@ -526,19 +504,19 @@ namespace NAudio.Wave
         /// </exception>
         public AudioStreamVolume AudioStreamVolume
         {
-            get 
+            get
             {
                 if (shareMode == AudioClientShareMode.Exclusive)
                 {
                     throw new InvalidOperationException("AudioStreamVolume is ONLY supported for shared audio streams.");
                 }
-                return audioClient.AudioStreamVolume;  
+                return audioClient.AudioStreamVolume;
             }
         }
 
-#endregion
+        #endregion
 
-#region IDisposable Members
+        #region IDisposable Members
 
         /// <summary>
         /// Dispose
@@ -552,6 +530,6 @@ namespace NAudio.Wave
             }
         }
 
-#endregion
+        #endregion
     }
 }

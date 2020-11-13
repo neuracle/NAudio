@@ -16,25 +16,25 @@ namespace NAudioDemo
         public static extern void Output(int address, int value);
 
         private int _parallelPortAddress = 888;
-        bool _useParallelPort = true;
+        bool _useParallelPort = false;
 
         public MainForm()
         {
             COMHelper.SerialPortInit();
             COMHelper cOMHelper = new COMHelper();
-            for (int i = 0; i < 200; i++)
+            for (int i = 0; i < 1000; i++)
             {
 
-                using (var outputDevice = new WasapiOut(NAudio.CoreAudioApi.AudioClientShareMode.Exclusive, true, 100))
+                using (var outputDevice = new WasapiOut(NAudio.CoreAudioApi.AudioClientShareMode.Exclusive, true, 10))
                 {
                     string audio;
-                    if (i % 2 == 0)
+                    //if (i % 2 == 0)
                     {
                         audio = @"sin800.wav";
                     }
-                    else
+                    //else
                     {
-                        audio = @"sin1200.wav";
+                       // audio = @"sin1200.wav";
                     }
                     int tick = Environment.TickCount;
                     using (var audioFile = new AudioFileReader(audio))
@@ -68,22 +68,14 @@ namespace NAudioDemo
                                 interval = 137;
                                 break;
                         }
-                        //interval = 100;
-                        //for (int j = 0; j < interval; j++)
-                        //{
-                        //    Thread.Sleep(1);
-                        //}
-                        //outputDevice.Stop();
-                        for (int j = 0; j < 900; j++)
-                        {
-                            Thread.Sleep(1);
-                        }
+                        Thread.Sleep(interval);
+                        outputDevice.Stop();
                         //while (outputDevice.PlaybackState == PlaybackState.Playing)
                         //{
                         //    Thread.Sleep(1);
                         //}
                     }
-                    for (int j = 0; j < 100; j++)
+                    for (int j = 0; j < 10; j++)
                     {
                         Thread.Sleep(1);
                     }
